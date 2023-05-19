@@ -85,7 +85,7 @@ class WorkflowChain(models.Model):
         DEPART_LEADER = 'DEPART_LEADER', '部门领导'
 
     workflow = models.ForeignKey(Workflow, on_delete=models.CASCADE, related_name='chains', verbose_name='工作流')
-    type = models.CharField(max_length=16, choices=Type.choices, default=Type.DEPART_LEADER, verbose_name='类型')
+    type = models.CharField(max_length=16, choices=Type.choices, default=Type.DEPART_LEADER, verbose_name='审批类型')
     person = models.ForeignKey('user.User', null=True, blank=True, on_delete=models.SET_NULL, verbose_name='审批人')
     role = models.ForeignKey(Group, null=True, blank=True, on_delete=models.SET_NULL, verbose_name='角色')
     department = models.ForeignKey('user.Department', null=True, blank=True, on_delete=models.SET_NULL, verbose_name='审批部门')
