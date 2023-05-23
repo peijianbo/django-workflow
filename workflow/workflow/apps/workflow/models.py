@@ -80,6 +80,13 @@ class WorkflowChain(models.Model):
     """
 
     class Type(models.TextChoices):
+        """
+            type的作用：确定每个审批节点的类型。
+            type=PERSON表示该节点由指定的具体的人审批。
+            type=ROLE表示该节点由指定的角色进行审批而非具体到人。
+            type=DEPART_LEADER表示该节点由部门领导进行审批。
+            用法详见WorkflowChain.get_approver函数
+        """
         PERSON = 'PERSON', '人'
         ROLE = 'ROLE', '角色'
         DEPART_LEADER = 'DEPART_LEADER', '部门领导'
