@@ -1,6 +1,20 @@
 # django-workflow
 
-基于Django+DRF实现的一个workflow工作流代码示例。
+基于Django+DRF实现的一个workflow工作流引擎代码示例。这个项目想传递的价值是模型设计思想，而并不提供完整的API接口和细节处理。
+
+
+view中有两个主要api：
+
+api/v1/workflow/workflow_nodes/{workflow_node_id}/approve/     --审批通过
+
+
+api/v1/workflow/workflow_nodes/{workflow_node_id}/approve/     --审批驳回
+
+
+邮件提醒通过django信号方式：详见 apps/workflow/signals.py
+
+
+
 
 # 模型解释: 
 
@@ -40,5 +54,5 @@
 
 
 ## 关于Field表
-    这张表将每个工作流的特有字段提取出来独立存储，而不像那些常规做法把信息存到JSONField字段中。这样做的好处是可维护、扩展性强。
-    并且可以自动反序列化并对字段进行校验（详见to_serializer_field和generate_serializer函数）
+    这张表将每个工作流的特有字段提取出来独立存储，而不像那些常规做法把所有信息存到JSONField字段中。这样做的好处是可维护、扩展性强，代码逼格也更高。
+    并且通过动态创建序列化器的方式，可以自动反序列化并对字段进行校验（详见to_serializer_field和generate_serializer函数）
