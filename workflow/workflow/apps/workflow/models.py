@@ -105,7 +105,7 @@ class WorkflowChain(models.Model):
         verbose_name_plural = verbose_name
 
     def __str__(self):
-        return self.workflow.name
+        return f"{self.workflow.name}-审批节点{self.rank}"
 
     def get_approver(self):
         if self.type == self.Type.PERSON:

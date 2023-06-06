@@ -13,6 +13,3 @@ class UserViewSet(ModelViewSet):
 
     queryset = User.objects.all()
     serializer_class = UserSerializer
-
-    def list(self, request, *args, **kwargs):
-        return super(UserViewSet, self).list(*args, **kwargs)

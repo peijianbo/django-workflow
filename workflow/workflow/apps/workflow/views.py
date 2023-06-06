@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from libs.frameworks.permissions import IsApprover
+from workflow.libs.frameworks.permissions import IsApprover
 from .models import *
 from .serializers import *
 
