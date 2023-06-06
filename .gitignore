@@ -1,0 +1,10 @@
+# Created by .ignore support plugin (hsz.mobi)
+.idea/
+*.pyc
+__pycache__
+#itom_cmdb/logs/*
+*.log.*
+*.log
+venv/
+.DS_Store
+workflow/workflow/apps/*/migrations/*.py
