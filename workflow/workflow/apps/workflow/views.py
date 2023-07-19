@@ -35,14 +35,14 @@ class WorkflowNodeViewSet(ModelViewSet):
     serializer_class = WorkFlowNodeSerializer
 
     @action(methods=['post'], detail=True, url_path='approve', name='approve', permission_classes=[IsApprover])
-    def approve(self, request, pk=None):
+    def approve_view(self, request, pk=None):
         comment = request.data.get('comment')
         obj = self.get_object()
         obj.approve(comment=comment)
         return Response(data={'msg': '审批成功'}, status=status.HTTP_200_OK)
 
     @action(methods=['post'], detail=True, url_path='reject', name='reject', permission_classes=[IsApprover])
-    def reject(self, request, pk=None):
+    def reject_view(self, request, pk=None):
         comment = request.data.get('comment')
         obj = self.get_object()
         obj.reject(comment=comment)

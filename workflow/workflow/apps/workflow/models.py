@@ -228,7 +228,9 @@ class WorkflowNode(models.Model):
         self.action = self.Action.APPROVED
         self.comment = comment
         self.actor = actor if actor else self.approver
-        self.save()
+        with transaction.atomic():
+            self.save()
+            self.change_event_state()
 
         from .signals import node_approved
         node_approved.send(sender=self.__class__, instance=self)
