@@ -5,6 +5,7 @@ from django.db import models, transaction
 from rest_framework import serializers
 from rest_framework.fields import ChoiceField
 
+from workflow.apps.user.models import User
 from libs.frameworks.validators import is_identifier, is_choice_format
 
 __all__ = ['Component', 'FormField', 'Workflow', 'WorkflowChain', 'WorkflowNode', 'WorkflowEvent']
@@ -110,13 +111,17 @@ class WorkflowChain(models.Model):
     class Type(models.TextChoices):
         """
             type的作用：确定每个审批节点的类型。
+            type=SELF表示该节点由发起人审批。
+            type=CUSTOM表示该节点由发起人指定。
             type=PERSON表示该节点由指定的具体的人审批。
             type=ROLE表示该节点由指定的角色进行审批而非具体到人。
             type=DEPART_LEADER表示该节点由部门领导进行审批。
             用法详见WorkflowChain.get_approver函数
         """
-        PERSON = 'PERSON', '人'
-        ROLE = 'ROLE', '角色'
+        SELF = 'SELF', '发起人自己'
+        ELECT = 'ELECT', '发起人自选'
+        PERSON = 'PERSON', '指定人'
+        ROLE = 'ROLE', '指定角色'
         DEPART_LEADER = 'DEPART_LEADER', '部门领导'
 
     workflow = models.ForeignKey(Workflow, on_delete=models.CASCADE, related_name='chains', verbose_name='工作流')
@@ -133,15 +138,17 @@ class WorkflowChain(models.Model):
         verbose_name_plural = verbose_name
 
     def __str__(self):
-        return f"{self.workflow.name}-审批节点{self.rank}"
+        return f"{self.workflow.name}-审批节点-{self.rank}"
 
-    def get_approver(self):
-        if self.type == self.Type.PERSON:
-            return self.person
-        elif self.type == self.Type.ROLE:
-            return self.role.user_set.all().first() if self.role and self.role.user_set.all().exists() else None
-        elif self.type == self.Type.DEPART_LEADER:
-            return self.department.leader if self.department else None
+    def get_approver(self, requester=None, elected_approver=None):
+        approver_map = {
+            self.Type.SELF: requester,
+            self.Type.ELECT: elected_approver,
+            self.Type.PERSON: self.person,
+            self.Type.ROLE: self.role.user_set.all().first() if self.role and self.role.user_set.all().exists() else None,  # TODO 多人处理
+            self.Type.DEPART_LEADER: self.department.leader if self.department else None,
+        }
+        return approver_map.get(self.type, None)
 
 
 class WorkflowEvent(models.Model):
@@ -168,13 +175,6 @@ class WorkflowEvent(models.Model):
 
     def __str__(self):
         return f"{self.requester.username}-{self.workflow.name}-{self.get_state_display()}"
-
-    def save(self, *args, **kwargs):
-        if not self.pk:  # 创建操作
-            super().save(*args, **kwargs)
-            WorkflowNode.generate_workflow_node(self)
-        else:  # 更新操作
-            super(WorkflowEvent, self).save(*args, **kwargs)
 
 
 class WorkflowNode(models.Model):
@@ -207,7 +207,7 @@ class WorkflowNode(models.Model):
 
     def __str__(self):
         return f"{self.event.requester.username}-{self.event.workflow.name}-" \
-               f"{self.get_action_display()}({self.approver.username})-{self.rank}"
+               f"{self.get_action_display()}({getattr(self.approver, 'username', '')})-{self.rank}"
 
     def allow_action(self):
         if self.next_node and self.next_node.action != self.Action.PENDING:  # 下一节点已经审批完成
@@ -278,12 +278,17 @@ class WorkflowNode(models.Model):
         node_rejected.send(sender=self.__class__, instance=self)
 
     @classmethod
-    def generate_workflow_node(cls, event: WorkflowEvent):
-        """生成审批节点"""
+    def generate_workflow_node(cls, event: WorkflowEvent, approvers: dict):
+        """生成审批节点
+            approvers: {'chain_id': 'user_id', ...}
+        """
         chains = event.workflow.chains.all()
         if not chains.exists():
             raise Exception('此工作流尚未设置审批链，请联系管理员配置审批链')
         with transaction.atomic():
             for chain in chains:
-                approver = chain.get_approver()
+                elected_approver = None
+                if chain.type == WorkflowChain.Type.ELECT and str(chain.id) in approvers:
+                    elected_approver = User.objects.filter(id=approvers[str(chain.id)]).first()
+                approver = chain.get_approver(requester=event.requester, elected_approver=elected_approver)
                 wn = WorkflowNode.objects.create(event=event, approver=approver, rank=chain.rank)

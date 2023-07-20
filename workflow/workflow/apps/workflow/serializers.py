@@ -1,13 +1,18 @@
 import datetime
 
+from django.db import transaction
+from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer
 from rest_framework.settings import api_settings
 
+from libs.frameworks.serializers import DisplayModelSerializer
 from .models import *
 
 
 __all__ = ['ComponentSerializer', 'FormFieldSerializer', 'WorkFlowSerializer', 'WorkFlowChainSerializer',
            'WorkFlowNodeSerializer', 'WorkflowEventSerializer']
+
+from ..user.serializers import UserSerializer
 
 
 class ComponentSerializer(ModelSerializer):
@@ -46,7 +51,13 @@ class WorkFlowNodeSerializer(ModelSerializer):
         depth = 1
 
 
-class WorkflowEventSerializer(ModelSerializer):
+class WorkflowEventSerializer(DisplayModelSerializer):
+    # 审批链节点类型为发起人自选时，需要传该参数，格式为：{'chain_id': 'user_id', ...}
+    requester_id = serializers.IntegerField(write_only=True, label='发起人ID')
+    requester = UserSerializer(read_only=True, label='发起人')
+    workflow_id = serializers.IntegerField(write_only=True, label='工作流ID')
+    workflow = WorkFlowSerializer(read_only=True, label='工作流')
+    approvers = serializers.DictField(child=serializers.CharField(), allow_empty=True, allow_null=True, required=False, write_only=True)
 
     class Meta:
         model = WorkflowEvent
@@ -58,7 +69,7 @@ class WorkflowEventSerializer(ModelSerializer):
         super(WorkflowEventSerializer, self).__init__(*args, **kwargs)
         workflow_id = None
         if hasattr(self, 'initial_data'):
-            workflow_id = self.initial_data.get('workflow')
+            workflow_id = self.initial_data.get('workflow_id')
         if not workflow_id:
             return
         wf = Workflow.objects.filter(id=workflow_id).first()
@@ -77,3 +88,17 @@ class WorkflowEventSerializer(ModelSerializer):
                     result['form_fields'][key] = value.strftime('%Y-%m-%d')
                 # TODO 处理其他无法json序列化的字段
         return result
+
+    def validate_approvers(self, value):
+        chains = Workflow.objects.filter(id=self.initial_data['workflow_id']).first().chains.all()
+        for chain in chains:
+            if chain.type == WorkflowChain.Type.ELECT and str(chain.id) not in value:
+                raise serializers.ValidationError(f'自选审批人节点未指定审批人【chain_id:{chain.id}】')
+        return value
+
+    def create(self, validated_data):
+        approvers = validated_data.pop('approvers', {})
+        with transaction.atomic():
+            instance = super(WorkflowEventSerializer, self).create(validated_data)
+            WorkflowNode.generate_workflow_node(instance, approvers)
+        return instance
