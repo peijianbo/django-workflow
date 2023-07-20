@@ -1,13 +1,24 @@
+from collections import OrderedDict
+
 from django.contrib.auth.models import Group
 from django.db import models, transaction
 from rest_framework import serializers
+from rest_framework.fields import ChoiceField
+
+from libs.frameworks.validators import is_identifier, is_choice_format
+
+__all__ = ['Component', 'FormField', 'Workflow', 'WorkflowChain', 'WorkflowNode', 'WorkflowEvent']
 
 
-__all__ = ['Field', 'Workflow', 'WorkflowChain', 'WorkflowNode', 'WorkflowEvent']
+class Component(models.Model):
+    class UIType(models.TextChoices):
+        INPUT = 'INPUT', '单行输入框'
+        TEXT = 'TEXT', '多行输入框'
+        RADIO = 'RADIO', '单选框'
+        CHECKBOX = 'CHECKBOX', '多选框'
+        DATEPICKER = 'DATEPICKER', '日期选择器'
 
-
-class Field(models.Model):
-    class Type(models.TextChoices):
+    class DataType(models.TextChoices):
         STR = 'STR', '字符串'
         INT = 'INT', '整数'
         DATETIME = 'DATETIME', '日期时间'
@@ -22,29 +33,47 @@ class Field(models.Model):
                 cls.DATA: serializers.DateField,
             }
 
-    name = models.CharField(max_length=32, verbose_name='字段名称')
-    label = models.CharField(max_length=64, verbose_name='字段标签')
-    type = models.CharField(max_length=32, choices=Type.choices, default=Type.STR, verbose_name='字段类型')
-    default = models.JSONField(default=dict, blank=True, verbose_name='默认值')
-    required = models.BooleanField(default=False, verbose_name='是否必须')
+    name = models.CharField(max_length=64, verbose_name='名称')
+    ui_type = models.CharField(max_length=32, choices=UIType.choices, verbose_name='UI类型')
+    data_type = models.CharField(max_length=32, choices=DataType.choices, verbose_name='数据类型')
 
     def __str__(self):
-        return self.label
+        return self.name
 
     class Meta:
-        db_table = 'workflow_field'
-        verbose_name = '工作流字段'
+        db_table = 'wf_component'
+        verbose_name = '工作流表单组件'
         verbose_name_plural = verbose_name
 
+
+class FormField(models.Model):
+
+    field_name = models.CharField(max_length=64, unique=True, validators=[is_identifier], verbose_name='字段名称')
+    component = models.ForeignKey(Component, on_delete=models.PROTECT, verbose_name='组件')
+    workflow = models.ForeignKey('Workflow', related_name='form_fields', on_delete=models.CASCADE, verbose_name='工作流')
+    placeholder = models.CharField(max_length=128, default='', blank=True, verbose_name='提示语')
+    rank = models.IntegerField(verbose_name='字段在表单中的上下排列顺序')
+    required = models.BooleanField(default=False, verbose_name='是否必须')
+    # choices: ['婚假', '产假', ...]
+    choices = models.JSONField(default=list, blank=True, validators=[is_choice_format], verbose_name='可选项(针对单/多选框组件)')
+
+    def __str__(self):
+        return self.field_name
+
     def to_serializer_field(self):
-        field = self.Type.map().get(self.type)
+        field = Component.DataType.map().get(self.component.data_type)
         kwargs = {'required': False}
         if self.required:
             kwargs['required'] = True
-            return field(**kwargs)
-        if self.default:
-            kwargs['default'] = self.default
+        if len(self.choices) != 0:
+            kwargs['choices'] = OrderedDict([(c, c) for c in self.choices])
+            return ChoiceField(**kwargs)
         return field(**kwargs)
+
+    class Meta:
+        db_table = 'wf_form_field'
+        verbose_name = '工作流表单字段'
+        verbose_name_plural = verbose_name
 
 
 class Workflow(models.Model):
@@ -53,21 +82,20 @@ class Workflow(models.Model):
     如请假流/报销流
     """
     name = models.CharField(max_length=128, unique=True, verbose_name='工作流名称', help_text='如请假/报销等')
-    fields = models.ManyToManyField(Field, verbose_name='字段', help_text='工作流的必要字段，如请假需要开始时间/结束时间')
     comment = models.CharField(max_length=256, null=True, blank=True, verbose_name='备注')
 
     class Meta:
-        db_table = 'workflow_workflow'
+        db_table = 'wf_workflow'
         verbose_name = '工作流'
         verbose_name_plural = verbose_name
 
     def __str__(self):
         return self.name
 
-    def generate_serializer(self):
-        fields = self.fields.all()
-        serializer_fields = {f.name: f.to_serializer_field() for f in fields}
-        return type('WorkflowFieldSerializer', (serializers.Serializer,), serializer_fields)
+    def generate_form_serializer(self):
+        fields = self.form_fields.all()
+        serializer_fields = {f.field_name: f.to_serializer_field() for f in fields}
+        return type('WorkflowFormSerializer', (serializers.Serializer,), serializer_fields)
 
 
 class WorkflowChain(models.Model):
@@ -99,7 +127,7 @@ class WorkflowChain(models.Model):
     rank = models.IntegerField(verbose_name='审批顺序', help_text='数字由小到大，数字越大审批顺序越靠后')
 
     class Meta:
-        db_table = 'workflow_chain'
+        db_table = 'wf_chain'
         ordering = ['rank']
         verbose_name = '工作流程链'
         verbose_name_plural = verbose_name
@@ -129,12 +157,12 @@ class WorkflowEvent(models.Model):
     workflow = models.ForeignKey('Workflow', on_delete=models.PROTECT, verbose_name='工作流')
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING, verbose_name='状态')
     # 根据不同工作流程链，存储不同信息。如请假会包含开始时间/结束时间
-    extra_props = models.JSONField(default=dict, blank=True, verbose_name='其他信息')
+    form_fields = models.JSONField(default=dict, blank=True, verbose_name='表单信息')
     create_time = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     update_time = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
     class Meta:
-        db_table = 'workflow_event'
+        db_table = 'wf_event'
         verbose_name = '工作流事件'
         verbose_name_plural = verbose_name
 
@@ -172,7 +200,7 @@ class WorkflowNode(models.Model):
     comment = models.CharField(max_length=256, null=True, blank=True, verbose_name='备注')
 
     class Meta:
-        db_table = 'workflow_node'
+        db_table = 'wf_node'
         ordering = ['rank']
         verbose_name = '工作流节点'
         verbose_name_plural = verbose_name

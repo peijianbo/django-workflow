@@ -4,7 +4,8 @@ from django.contrib import admin
 
 from .models import *
 
-admin.site.register(Field)
+admin.site.register(Component)
+admin.site.register(FormField)
 admin.site.register(Workflow)
 admin.site.register(WorkflowChain)
 admin.site.register(WorkflowNode)
