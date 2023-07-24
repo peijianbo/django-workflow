@@ -6,7 +6,7 @@ from rest_framework import serializers
 from rest_framework.fields import ChoiceField
 
 from workflow.apps.user.models import User
-from libs.frameworks.validators import is_identifier, is_choice_format
+from workflow.libs.frameworks.validators import is_identifier, is_choice_format
 
 __all__ = ['Component', 'FormField', 'Workflow', 'WorkflowChain', 'WorkflowNode', 'WorkflowEvent']
 
@@ -103,9 +103,6 @@ class WorkflowChain(models.Model):
     """
     工作流程链。每个工作流下都关联一个完整的工作流程链。
     如一个请假工作流的流程链：部门部长-->HRBP-->人事专员-->CEO
-    建议大层级rank值以10为间隔递增，小层级rank值以1为间隔递增,方便实现同一级的多人审批
-    如 部门副部长(rank=1) -->  HRBP(rank=20)  -->  人事专员(rank=30)  -->  CEO(rank=40)
-       部门部长(rank=2)                       -->  人事部长(rank=31)
     """
 
     class Type(models.TextChoices):
@@ -124,29 +121,57 @@ class WorkflowChain(models.Model):
         ROLE = 'ROLE', '指定角色'
         DEPART_LEADER = 'DEPART_LEADER', '部门领导'
 
+    class Condition(models.TextChoices):
+        LT = 'LT', '小于'
+        LTE = 'LTE', '小于等于'
+        E = 'E', '等于'
+        GT = 'GT', '大于'
+        GTE = 'GTE', '大于等于'
+        # RANGE = 'RANGE', '介于(两数之间)'
+
     workflow = models.ForeignKey(Workflow, on_delete=models.CASCADE, related_name='chains', verbose_name='工作流')
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='children', verbose_name='父节点')
+
+    form_field = models.ForeignKey(FormField, null=True, blank=True, on_delete=models.PROTECT, related_name='conditions', verbose_name='表单字段')
+    condition = models.CharField(max_length=16, null=True, blank=True, choices=Condition.choices, verbose_name='条件')
+    condition_value = models.IntegerField(null=True, blank=True, verbose_name='条件值')
+    rank = models.IntegerField(verbose_name='分支优先级', help_text='用在条件分支中，条件分支都未命中时，根据rank升序并使用最后一个分支')
+
     type = models.CharField(max_length=16, choices=Type.choices, default=Type.DEPART_LEADER, verbose_name='审批类型')
     person = models.ForeignKey('user.User', null=True, blank=True, on_delete=models.SET_NULL, verbose_name='审批人')
     role = models.ForeignKey(Group, null=True, blank=True, on_delete=models.SET_NULL, verbose_name='角色')
     department = models.ForeignKey('user.Department', null=True, blank=True, on_delete=models.SET_NULL, verbose_name='审批部门')
-    rank = models.IntegerField(verbose_name='审批顺序', help_text='数字由小到大，数字越大审批顺序越靠后')
+    comment = models.CharField(max_length=256, null=True, blank=True, verbose_name='备注')
 
     class Meta:
         db_table = 'wf_chain'
-        ordering = ['rank']
         verbose_name = '工作流程链'
         verbose_name_plural = verbose_name
 
     def __str__(self):
-        return f"{self.workflow.name}-审批节点-{self.rank}"
+        return f"{self.workflow.name}-审批链节点-{self.id}"
 
-    def get_approver(self, requester=None, elected_approver=None):
+    @property
+    def operator(self):
+        operator_map = {
+            str(self.Condition.LT): '<',
+            str(self.Condition.LTE): '<=',
+            str(self.Condition.E): '==',
+            str(self.Condition.GT): '>',
+            str(self.Condition.GTE): '>=',
+        }
+        return operator_map.get(self.condition, None)
+
+    def get_approver(self, approvers: dict, requester: User):
+        elected_approver = None
+        if self.type == WorkflowChain.Type.ELECT and str(self.id) in approvers:
+            elected_approver = User.objects.filter(id=approvers[str(self.id)]).first()
         approver_map = {
-            self.Type.SELF: requester,
-            self.Type.ELECT: elected_approver,
-            self.Type.PERSON: self.person,
-            self.Type.ROLE: self.role.user_set.all().first() if self.role and self.role.user_set.all().exists() else None,  # TODO 多人处理
-            self.Type.DEPART_LEADER: self.department.leader if self.department else None,
+            str(self.Type.SELF): requester,
+            str(self.Type.ELECT): elected_approver,
+            str(self.Type.PERSON): self.person,
+            str(self.Type.ROLE): self.role.user_set.all().first() if self.role and self.role.user_set.all().exists() else None,  # TODO 多人处理
+            str(self.Type.DEPART_LEADER): self.department.leader if self.department else None,
         }
         return approver_map.get(self.type, None)
 
@@ -189,9 +214,8 @@ class WorkflowNode(models.Model):
         REJECTED = 'REJECTED', '已驳回'
 
     event = models.ForeignKey('WorkflowEvent', on_delete=models.CASCADE, verbose_name='工作流事件')
-    approver = models.ForeignKey('user.User', null=True, on_delete=models.SET_NULL, related_name='nodes',
-                                 verbose_name='审批者')
-    rank = models.IntegerField(verbose_name='审批顺序', help_text='数字由小到大，数字越大审批顺序越靠后')
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='children', verbose_name='父节点')
+    approver = models.ForeignKey('user.User', null=True, on_delete=models.SET_NULL, related_name='nodes', verbose_name='审批者')
     action = models.CharField(max_length=16, choices=Action.choices, default=Action.PENDING, verbose_name='动作')
     actor = models.ForeignKey('user.User', null=True, on_delete=models.SET_NULL, verbose_name='执行者',
                               help_text='实际执行者，可能是权限更高的角色如人事')
@@ -201,13 +225,12 @@ class WorkflowNode(models.Model):
 
     class Meta:
         db_table = 'wf_node'
-        ordering = ['rank']
         verbose_name = '工作流节点'
         verbose_name_plural = verbose_name
 
     def __str__(self):
         return f"{self.event.requester.username}-{self.event.workflow.name}-" \
-               f"{self.get_action_display()}({getattr(self.approver, 'username', '')})-{self.rank}"
+               f"{self.get_action_display()}({getattr(self.approver, 'username', '')})"
 
     def allow_action(self):
         if self.next_node and self.next_node.action != self.Action.PENDING:  # 下一节点已经审批完成
@@ -280,15 +303,32 @@ class WorkflowNode(models.Model):
     @classmethod
     def generate_workflow_node(cls, event: WorkflowEvent, approvers: dict):
         """生成审批节点
-            approvers: {'chain_id': 'user_id', ...}
+            当为审批者为发起人自选时需要传approvers: {'chain_id': 'user_id', ...}
         """
-        chains = event.workflow.chains.all()
-        if not chains.exists():
+        parent_node = None
+        next_chains = event.workflow.chains.filter(parent__isnull=True).all()  # 找到最靠前的审批节点链
+        if not next_chains.exists():
             raise Exception('此工作流尚未设置审批链，请联系管理员配置审批链')
-        with transaction.atomic():
-            for chain in chains:
-                elected_approver = None
-                if chain.type == WorkflowChain.Type.ELECT and str(chain.id) in approvers:
-                    elected_approver = User.objects.filter(id=approvers[str(chain.id)]).first()
-                approver = chain.get_approver(requester=event.requester, elected_approver=elected_approver)
-                wn = WorkflowNode.objects.create(event=event, approver=approver, rank=chain.rank)
+
+        def recursion_create_node(parent_node, next_chains):
+            """递归创建审批节点"""
+            with transaction.atomic():
+                for chain in next_chains:
+                    approver = chain.get_approver(approvers, event.requester)
+                    if chain == next_chains.last():  # 最后一个默认条件分支
+                        condition = '1 == 1'
+                    else:
+                        actual_value = int(event.form_fields.get(chain.form_field.field_name))
+                        condition = f'{actual_value} {chain.operator} {chain.condition_value}'
+                    if eval(condition):
+                        parent_node = WorkflowNode.objects.create(event=event, approver=approver, parent=parent_node, comment=chain.comment)
+                        next_chains = chain.children.all().order_by('rank')
+                        has_find_branch = True
+                    else:
+                        continue
+                    if next_chains.count() > 0:
+                        recursion_create_node(parent_node, next_chains)
+                    if has_find_branch:  # 一旦找到满足条件分支，终止循环
+                        break
+
+        recursion_create_node(parent_node, next_chains)

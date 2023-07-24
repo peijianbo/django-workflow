@@ -3,16 +3,14 @@ import datetime
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer
-from rest_framework.settings import api_settings
 
-from libs.frameworks.serializers import DisplayModelSerializer
+from workflow.libs.frameworks.serializers import DisplayModelSerializer
 from .models import *
+from ..user.serializers import UserSerializer
 
 
 __all__ = ['ComponentSerializer', 'FormFieldSerializer', 'WorkFlowSerializer', 'WorkFlowChainSerializer',
            'WorkFlowNodeSerializer', 'WorkflowEventSerializer']
-
-from ..user.serializers import UserSerializer
 
 
 class ComponentSerializer(ModelSerializer):
@@ -36,11 +34,42 @@ class WorkFlowSerializer(ModelSerializer):
         fields = '__all__'
 
 
+class WorkFlowChainListSerializer(serializers.ListSerializer):
+    @classmethod
+    def recursion_create_chain(cls, validated_data, parent=None, created_chains=None):
+        """递归创建审批链节点"""
+        if created_chains is None:
+            created_chains = []
+        for data in validated_data:
+            serializer = WorkFlowChainSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            children = data.pop('children', [])
+            chain = WorkflowChain.objects.create(parent=parent, **data)
+            created_chains.append(chain)
+            cls.recursion_create_chain(children, parent=chain, created_chains=created_chains)
+        return created_chains
+
+    def create(self, validated_data):
+        with transaction.atomic():
+            workflow_id = validated_data[0].get('workflow_id', None) if len(validated_data) > 0 else None
+            WorkflowChain.objects.filter(workflow_id=workflow_id).delete()  # 不支持编辑，想要修改流程链，走创建逻辑
+            return self.recursion_create_chain(validated_data)
+
+
 class WorkFlowChainSerializer(ModelSerializer):
+    parent_id = serializers.IntegerField(read_only=True, label='父节点ID')
+    workflow_id = serializers.IntegerField(write_only=True, label='工作流ID')
+    form_field_id = serializers.IntegerField(write_only=True, required=False, allow_null=True, label='表单字段ID')
+    person_id = serializers.IntegerField(write_only=True, required=False, allow_null=True, label='用户ID')
+    role_id = serializers.IntegerField(write_only=True, required=False, allow_null=True, label='角色ID')
+    department_id = serializers.IntegerField(write_only=True, required=False, allow_null=True, label='部门ID')
+    workflow = WorkFlowSerializer(read_only=True, label='工作流')
+    children = serializers.ListSerializer(child=serializers.DictField(), write_only=True, required=False)
 
     class Meta:
         model = WorkflowChain
         fields = '__all__'
+        list_serializer_class = WorkFlowChainListSerializer
 
 
 class WorkFlowNodeSerializer(ModelSerializer):
@@ -90,6 +119,7 @@ class WorkflowEventSerializer(DisplayModelSerializer):
         return result
 
     def validate_approvers(self, value):
+        """校验自选审批人节点是否指定了审批人"""
         chains = Workflow.objects.filter(id=self.initial_data['workflow_id']).first().chains.all()
         for chain in chains:
             if chain.type == WorkflowChain.Type.ELECT and str(chain.id) not in value:
@@ -97,6 +127,7 @@ class WorkflowEventSerializer(DisplayModelSerializer):
         return value
 
     def create(self, validated_data):
+        """创建工作流事件时，触发生成审批节点动作"""
         approvers = validated_data.pop('approvers', {})
         with transaction.atomic():
             instance = super(WorkflowEventSerializer, self).create(validated_data)
