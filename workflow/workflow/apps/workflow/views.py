@@ -101,6 +101,7 @@ class WorkflowChainViewSet(mixins.CreateModelMixin,
 
     @action(methods=['get'], detail=False, url_path='chain_tree', name='chain_tree')
     def chain_tree(self, request, **kwargs):
+        """返回类似创建chain时前端传过来的数据接口，方便前端回显"""
         workflow_id = request.query_params.get('workflow_id', None)
         if not workflow_id:
             return Response(data={'msg': '请求参数缺失。'}, status=status.HTTP_400_BAD_REQUEST)
@@ -134,12 +135,12 @@ class WorkflowNodeViewSet(mixins.RetrieveModelMixin,
     def approve_view(self, request, pk=None):
         comment = request.data.get('comment')
         obj = self.get_object()
-        obj.approve(comment=comment)
+        obj.approve(approver=request.user, comment=comment)
         return Response(data={'msg': '审批成功'}, status=status.HTTP_200_OK)
 
     @action(methods=['post'], detail=True, url_path='reject', name='reject', permission_classes=[IsApprover])
     def reject_view(self, request, pk=None):
         comment = request.data.get('comment')
         obj = self.get_object()
-        obj.reject(comment=comment)
+        obj.reject(approver=request.user, comment=comment)
         return Response(data={'msg': '已驳回'}, status=status.HTTP_200_OK)

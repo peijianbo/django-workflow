@@ -84,7 +84,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
-    'DEFAULT_METADATA_CLASS': 'drf_auto_endpoint.metadata.AutoMetadata',
+    'DEFAULT_METADATA_CLASS': 'workflow.libs.frameworks.metadata.SimpleMetadata',
 }
 
 # Database

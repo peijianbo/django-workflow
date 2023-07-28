@@ -86,7 +86,7 @@ class WorkflowEventSerializer(DisplayModelSerializer):
     requester = UserSerializer(read_only=True, label='发起人')
     workflow_id = serializers.IntegerField(write_only=True, label='工作流ID')
     workflow = WorkFlowSerializer(read_only=True, label='工作流')
-    approvers = serializers.DictField(child=serializers.CharField(), allow_empty=True, allow_null=True, required=False, write_only=True)
+    chain_approver_dict = serializers.DictField(child=serializers.CharField(), allow_empty=True, allow_null=True, required=False, write_only=True)
 
     class Meta:
         model = WorkflowEvent
@@ -128,8 +128,8 @@ class WorkflowEventSerializer(DisplayModelSerializer):
 
     def create(self, validated_data):
         """创建工作流事件时，触发生成审批节点动作"""
-        approvers = validated_data.pop('approvers', {})
+        chain_approver_dict = validated_data.pop('chain_approver_dict', {})
         with transaction.atomic():
             instance = super(WorkflowEventSerializer, self).create(validated_data)
-            WorkflowNode.generate_workflow_node(instance, approvers)
+            WorkflowNode.generate_workflow_node(instance, chain_approver_dict)
         return instance
