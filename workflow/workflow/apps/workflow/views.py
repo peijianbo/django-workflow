@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,16 +21,30 @@ class ComponentViewSet(ModelViewSet):
     serializer_class = ComponentSerializer
 
 
-class WorkflowFormFieldViewSet(ModelViewSet):
-    filter_fields = ()
+class WorkflowFormFieldViewSet(mixins.CreateModelMixin,
+                               mixins.ListModelMixin,
+                               GenericViewSet):
+    filter_fields = ('workflow_id',)
     search_fields = filter_fields
 
     queryset = FormField.objects.all()
     serializer_class = FormFieldSerializer
 
+    def create(self, request, *args, **kwargs):
+        if not isinstance(request.data, list) or len(request.data) == 0:
+            return Response('数据格式有误，要求为非空列表。', status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            workflow_id = request.data[0].get('workflow_id', None)
+            FormField.objects.filter(workflow_id=workflow_id).delete()  # 不支持编辑，想要修改表单字段，走创建逻辑
+            for data in request.data:
+                serializer = self.get_serializer(data=data)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+        return Response(status=status.HTTP_201_CREATED)
+
 
 class WorkflowViewSet(ModelViewSet):
-    filter_fields = ()
+    filter_fields = ('name', 'comment')
     search_fields = filter_fields
 
     queryset = Workflow.objects.all()

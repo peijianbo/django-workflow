@@ -41,12 +41,35 @@ class SimpleMetadata(BaseMetadata):
         serializers.Serializer: 'nested object',
     })
 
+    def get_filters_fields(self, request, view):
+        fields = []
+        if hasattr(view, 'get_filter_fields'):
+            fields = list(view.get_filter_fields(request))
+        elif hasattr(view, 'filter_fields'):
+            fields = list(view.filter_fields)
+        if hasattr(view, 'filter_class'):
+            for field, filter_obj in view.filter_class.declared_filters.items():
+                if not hasattr(filter_obj, 'options_exclude'):
+                    f = field.replace('__exact', '').replace('__iexact', '').replace('__in', '').replace('__regex', '')
+                    fields.append(f)
+        return list(set(fields))
+
+    def get_ordering_fields(self, request, view):
+        fields = []
+        if hasattr(view, 'get_ordering_fields'):
+            fields = view.get_ordering_fields(request)
+        elif hasattr(view, 'ordering_fields'):
+            fields = view.ordering_fields
+        return fields
+
     def determine_metadata(self, request, view):
         metadata = OrderedDict()
         metadata['name'] = view.get_view_name()
         metadata['description'] = view.get_view_description()
         metadata['renders'] = [renderer.media_type for renderer in view.renderer_classes]
         metadata['parses'] = [parser.media_type for parser in view.parser_classes]
+        metadata['filter_fields'] = self.get_filters_fields(request, view)
+        metadata['order_fields'] = self.get_ordering_fields(request, view)
         if hasattr(view, 'get_serializer'):
             actions = self.determine_actions(request, view)
             if actions:

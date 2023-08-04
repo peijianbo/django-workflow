@@ -2,6 +2,8 @@ import datetime
 
 from django.db import transaction
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
+from rest_framework.fields import empty
 from rest_framework.serializers import ModelSerializer
 
 from workflow.libs.frameworks.serializers import DisplayModelSerializer
@@ -21,10 +23,16 @@ class ComponentSerializer(ModelSerializer):
 
 
 class FormFieldSerializer(ModelSerializer):
+    workflow_id = serializers.IntegerField(label='工作流ID')
+    component_id = serializers.IntegerField(label='组件ID')
 
     class Meta:
         model = FormField
         fields = '__all__'
+        extra_kwargs = {
+            'workflow': {'required': False},
+            'component': {'required': False},
+        }
 
 
 class WorkFlowSerializer(ModelSerializer):

@@ -56,7 +56,7 @@ class Component(models.Model):
 
 class FormField(models.Model):
 
-    field_name = models.CharField(max_length=64, unique=True, validators=[is_identifier], verbose_name='字段名称')
+    field_name = models.CharField(max_length=64, validators=[is_identifier], verbose_name='字段名称')
     component = models.ForeignKey(Component, on_delete=models.PROTECT, verbose_name='组件')
     workflow = models.ForeignKey('Workflow', related_name='form_fields', on_delete=models.CASCADE, verbose_name='工作流')
     placeholder = models.CharField(max_length=128, default='', blank=True, verbose_name='提示语')
@@ -82,6 +82,8 @@ class FormField(models.Model):
         db_table = 'wf_form_field'
         verbose_name = '工作流表单字段'
         verbose_name_plural = verbose_name
+        ordering = ['rank']
+        unique_together = [('workflow_id', 'field_name')]
 
 
 class Workflow(models.Model):
@@ -96,6 +98,7 @@ class Workflow(models.Model):
         db_table = 'wf_workflow'
         verbose_name = '工作流'
         verbose_name_plural = verbose_name
+        ordering = ['name']
 
     def __str__(self):
         return self.name
@@ -259,6 +262,8 @@ class WorkflowNode(models.Model):
     def validate_action(self, approver: User):
         if approver not in self.approvers.all():
             return False, '不是审批人'
+        if self.mode == self.Mode.OR and NodeApprover.objects.filter(node_id=self.id).exclude(action=Action.PENDING).exists():
+            return False, '已被或签成员审批'
         if hasattr(self, 'children') and getattr(self, 'children').node_state != Action.PENDING:  # 下一节点已经审批完成
             return False, '禁止操作，下一节点已经审批完成'
         if self.parent and self.parent.node_state != Action.APPROVED:  # 上一节点审批尚未通过
@@ -319,7 +324,7 @@ class WorkflowNode(models.Model):
             with transaction.atomic():
                 for chain in next_chains:
                     approvers = chain.get_approver(chain_approver_dict, event.requester)
-                    if chain == next_chains.last():  # 最后一个默认条件分支
+                    if chain == next_chains.last():  # 非条件分支节点或条件分支的最后一个默认分支
                         condition = '1 == 1'
                     else:
                         actual_value = int(event.form_fields.get(chain.form_field.field_name))
