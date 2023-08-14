@@ -17,3 +17,22 @@ def chain_getattr(obj, *args, default=None, raise_error=False):
         obj = getattr(obj, arg)
     return obj
 
+
+def sort_nodes_by_parent(nodes):
+    parent_map = {node['id']: node for node in nodes}
+
+    def get_children(node_id):
+        return [node for node in nodes if node['parent_id'] == node_id]
+
+    def dfs(node_id):
+        result.append(parent_map[node_id])
+        children = get_children(node_id)
+        for child in children:
+            dfs(child['id'])
+
+    result = []
+    root_nodes = [node for node in nodes if node['parent_id'] is None]
+    for root in root_nodes:
+        dfs(root['id'])
+
+    return result

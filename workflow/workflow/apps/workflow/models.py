@@ -6,6 +6,7 @@ from django.db import models, transaction
 from rest_framework import serializers
 from rest_framework.fields import ChoiceField
 
+from libs.utils.common_util import sort_nodes_by_parent
 from workflow.apps.user.models import User
 from workflow.libs.frameworks.validators import is_identifier, is_choice_format
 
@@ -13,7 +14,7 @@ __all__ = ['Component', 'FormField', 'Workflow', 'WorkflowChain', 'WorkflowNode'
 
 
 class Action(models.TextChoices):
-    PENDING = 'PENDING', '进行中'
+    PENDING = 'PENDING', '待处理'
     APPROVED = 'APPROVED', '已通过'
     REJECTED = 'REJECTED', '已驳回'
 
@@ -218,6 +219,25 @@ class WorkflowEvent(models.Model):
     def __str__(self):
         return f"{self.requester.username}-{self.workflow.name}-{self.get_state_display()}"
 
+    def node_process(self):
+        node_objs = self.nodes.all()
+        nodes = []
+        for node in node_objs:
+            approvers = []
+            for a in node.nodeapprover_set.all():
+                approvers.append({'user_id': a.approver_id, 'username': User.objects.get(id=a.approver_id).username, 'state': a.action})
+            nodes.append({
+                'id': node.id,
+                'parent_id': node.parent_id,
+                'approvers': approvers,
+                'mode': node.mode,
+                'mode_display': node.get_mode_display(),
+                'actor': node.actor.username if node.actor else '',
+                'node_state': node.node_state,
+            })
+        order_nodes = sort_nodes_by_parent(nodes)
+        return order_nodes
+
 
 class WorkflowNode(models.Model):
     """
@@ -228,8 +248,8 @@ class WorkflowNode(models.Model):
     class Mode(models.TextChoices):
         OR = 'OR', '或签'
         AND = 'AND', '会签'
-
-    event = models.ForeignKey('WorkflowEvent', on_delete=models.CASCADE, verbose_name='工作流事件')
+    # TODO 维护一个processing_node字段
+    event = models.ForeignKey('WorkflowEvent', related_name='nodes', on_delete=models.CASCADE, verbose_name='工作流事件')
     parent = models.OneToOneField('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='children', verbose_name='父节点')  # 注意OneToOneField的子节点不存在时，obj.children会报错
     approvers = models.ManyToManyField('user.User', through='NodeApprover', related_name='nodes', verbose_name='审批者')
     mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.AND, verbose_name='审批方式')

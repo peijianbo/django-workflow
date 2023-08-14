@@ -129,11 +129,25 @@ class WorkflowChainViewSet(mixins.CreateModelMixin,
 
 
 class WorkflowEventViewSet(ModelViewSet):
-    filter_fields = ()
+    ordering_fields = ('create_time', 'update_time')
+    filter_fields = ('requester_id', 'workflow_id', 'state')
     search_fields = filter_fields
 
     queryset = WorkflowEvent.objects.all()
     serializer_class = WorkflowEventSerializer
+
+    @action(methods=['get'], detail=False, url_path='my_event', name='my_event')
+    def my_event(self, request, **kwargs):
+        # 我发起的审批，为防止数据泄漏，不通过接口查询参数实现
+        queryset = self.filter_queryset(queryset=self.queryset).filter(requester=request.user)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 class WorkflowNodeViewSet(mixins.RetrieveModelMixin,

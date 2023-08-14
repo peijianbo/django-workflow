@@ -94,6 +94,7 @@ class WorkflowEventSerializer(DisplayModelSerializer):
     requester = UserSerializer(read_only=True, label='发起人')
     workflow_id = serializers.IntegerField(write_only=True, label='工作流ID')
     workflow = WorkFlowSerializer(read_only=True, label='工作流')
+    node_process = serializers.ListField(label='审批进度')
     chain_approver_dict = serializers.DictField(child=serializers.CharField(), allow_empty=True, allow_null=True, required=False, write_only=True)
 
     class Meta:
