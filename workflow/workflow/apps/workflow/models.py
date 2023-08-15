@@ -6,7 +6,7 @@ from django.db import models, transaction
 from rest_framework import serializers
 from rest_framework.fields import ChoiceField
 
-from libs.utils.common_util import sort_nodes_by_parent
+from workflow.libs.utils.common_util import sort_nodes_by_parent
 from workflow.apps.user.models import User
 from workflow.libs.frameworks.validators import is_identifier, is_choice_format
 
