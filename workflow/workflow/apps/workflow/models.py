@@ -6,7 +6,7 @@ from django.db import models, transaction
 from rest_framework import serializers
 from rest_framework.fields import ChoiceField
 
-from workflow.libs.utils.common_util import sort_nodes_by_parent
+from workflow.libs.utils.common_util import sort_nodes_by_parent, chain_getattr
 from workflow.apps.user.models import User
 from workflow.libs.frameworks.validators import is_identifier, is_choice_format
 
@@ -15,6 +15,13 @@ __all__ = ['Component', 'FormField', 'Workflow', 'WorkflowChain', 'WorkflowNode'
 
 class Action(models.TextChoices):
     PENDING = 'PENDING', '待处理'
+    APPROVED = 'APPROVED', '已通过'
+    REJECTED = 'REJECTED', '已驳回'
+
+
+class State(models.TextChoices):
+    PENDING = 'PENDING', '待处理'
+    PROCESSING = 'PROCESSING', '进行中'
     APPROVED = 'APPROVED', '已通过'
     REJECTED = 'REJECTED', '已驳回'
 
@@ -197,12 +204,6 @@ class WorkflowChain(models.Model):
 class WorkflowEvent(models.Model):
     """工作流事件，由员工发起。如一个具体的请假/报销/办公用品申请"""
 
-    class State(models.TextChoices):
-        PENDING = 'PENDING', '待处理'
-        PROCESSING = 'PROCESSING', '进行中'
-        APPROVED = 'APPROVED', '已通过'
-        REJECTED = 'REJECTED', '已驳回'
-
     requester = models.ForeignKey('user.User', on_delete=models.CASCADE, verbose_name='申请人')
     workflow = models.ForeignKey('Workflow', on_delete=models.PROTECT, verbose_name='工作流')
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING, verbose_name='状态')
@@ -233,7 +234,7 @@ class WorkflowEvent(models.Model):
                 'mode': node.mode,
                 'mode_display': node.get_mode_display(),
                 'actor': node.actor.username if node.actor else '',
-                'node_state': node.node_state,
+                'node_state': node.state,
             })
         order_nodes = sort_nodes_by_parent(nodes)
         return order_nodes
@@ -253,6 +254,7 @@ class WorkflowNode(models.Model):
     parent = models.OneToOneField('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='children', verbose_name='父节点')  # 注意OneToOneField的子节点不存在时，obj.children会报错
     approvers = models.ManyToManyField('user.User', through='NodeApprover', related_name='nodes', verbose_name='审批者')
     mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.AND, verbose_name='审批方式')
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING, verbose_name='状态')
 
     actor = models.ForeignKey('user.User', null=True, on_delete=models.SET_NULL, verbose_name='执行者',
                               help_text='实际执行者，可能是权限更高的角色如人事')
@@ -269,35 +271,49 @@ class WorkflowNode(models.Model):
         return f"{self.event.requester.username}-{self.event.workflow.name}-" \
                f"{self.get_action_display()}({getattr(self.approver, 'username', '')})"
 
-    @property
-    def node_state(self):
-        nas = NodeApprover.objects.filter(node_id=self.id)
-        if nas.filter(action=Action.REJECTED).exists():  # 有人拒绝
-            return Action.REJECTED
-        if (self.mode == self.Mode.OR and nas.filter(action=Action.APPROVED).exists()) or \
-                (self.mode == self.Mode.AND and all(action == Action.APPROVED for action in nas.values_list('action', flat=True))):
-            return Action.APPROVED
-        return Action.PENDING
-
     def validate_action(self, approver: User):
         if approver not in self.approvers.all():
             return False, '不是审批人'
         if self.mode == self.Mode.OR and NodeApprover.objects.filter(node_id=self.id).exclude(action=Action.PENDING).exists():
             return False, '已被或签成员审批'
-        if hasattr(self, 'children') and getattr(self, 'children').node_state != Action.PENDING:  # 下一节点已经审批完成
+        if hasattr(self, 'children') and getattr(self, 'children').state != Action.PENDING:  # 下一节点已经在审批中或审批完成
             return False, '禁止操作，下一节点已经审批完成'
-        if self.parent and self.parent.node_state != Action.APPROVED:  # 上一节点审批尚未通过
+        if self.parent and self.parent.state != Action.APPROVED:  # 上一节点审批尚未通过
             return False, '禁止操作，父节点审批尚未通过'
         return True, ''
 
+    def change_node_state(self, action: typing.Literal[Action.APPROVED, Action.REJECTED]):
+        if action == Action.REJECTED:
+            self.state = State.REJECTED
+        else:
+            nas = NodeApprover.objects.filter(node_id=self.id)
+            if self.mode == self.Mode.OR:
+                self.state = State.APPROVED
+                if hasattr(self, 'children'):
+                    self.children.state = State.PROCESSING
+                    self.children.save()
+            else:
+                if all(action == Action.APPROVED for action in nas.values_list('action', flat=True)):
+                    self.state = State.APPROVED
+                    if hasattr(self, 'children'):
+                        self.children.state = State.PROCESSING
+                        self.children.save()
+                else:
+                    self.state = State.PROCESSING
+        self.save()
+        return self.state
+
     def change_event_state(self, action: typing.Literal[Action.APPROVED, Action.REJECTED]):
         if action == Action.REJECTED:
-            self.event.state = WorkflowEvent.State.REJECTED
-        if self.mode == self.Mode.OR or (self.mode == self.Mode.AND and all(action == Action.APPROVED for action in NodeApprover.objects.filter(node_id=self.id).values_list('action', flat=True))):
-            self.event.state = WorkflowEvent.State.APPROVED
+            self.event.state = State.REJECTED
+            return self.event.save()
+        if self.mode == self.Mode.OR or \
+           (self.mode == self.Mode.AND and all(action == Action.APPROVED for action in NodeApprover.objects.filter(node_id=self.id).values_list('action', flat=True))):
+            self.event.state = State.APPROVED
+            return self.event.save()
         if self.mode == self.Mode.AND and NodeApprover.objects.filter(node_id=self.id, action=Action.PENDING).exists():
-            self.event.state = WorkflowEvent.State.PROCESSING
-        self.event.save()
+            self.event.state = State.PROCESSING
+            return self.event.save()
 
     def approve(self, approver: User, comment=None):
         can_do_action, msg = self.validate_action(approver)
@@ -309,6 +325,7 @@ class WorkflowNode(models.Model):
             an.action = Action.APPROVED
             an.comment = comment
             an.save()
+            self.change_node_state(Action.APPROVED)
             self.change_event_state(Action.APPROVED)
 
         from .signals import node_approved
@@ -324,6 +341,7 @@ class WorkflowNode(models.Model):
             an.action = Action.REJECTED
             an.comment = comment
             an.save()
+            self.change_node_state(Action.REJECTED)
             self.change_event_state(Action.REJECTED)
 
         from .signals import node_rejected
@@ -350,7 +368,8 @@ class WorkflowNode(models.Model):
                         actual_value = int(event.form_fields.get(chain.form_field.field_name))
                         condition = f'{actual_value} {chain.operator} {chain.condition_value}'
                     if eval(condition):
-                        parent_node = WorkflowNode.objects.create(event=event, mode=chain.mode, parent=parent_node, comment=chain.comment)
+                        state = State.PROCESSING if parent_node is None else State.PENDING  # 首节点设置状态为进行中
+                        parent_node = WorkflowNode.objects.create(event=event, mode=chain.mode, parent=parent_node, state=state, comment=chain.comment)
                         parent_node.approvers.add(*approvers)
                         next_chains = chain.children.all().order_by('rank')
                         has_find_branch = True
