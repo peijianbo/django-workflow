@@ -125,7 +125,7 @@ class WorkflowEventSerializer(DisplayModelSerializer):
                 # TODO 处理其他无法json序列化的字段
         return result
 
-    def validate_approvers(self, value):
+    def validate_chain_approver_dict(self, value):
         """校验自选审批人节点是否指定了审批人"""
         chains = Workflow.objects.filter(id=self.initial_data['workflow_id']).first().chains.all()
         for chain in chains:

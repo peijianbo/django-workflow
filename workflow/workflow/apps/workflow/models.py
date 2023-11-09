@@ -82,6 +82,7 @@ class FormField(models.Model):
         if self.required:
             kwargs['required'] = True
         if len(self.choices) != 0:
+            # key、label使用相同值，可能有隐患
             kwargs['choices'] = OrderedDict([(c, c) for c in self.choices])
             return ChoiceField(**kwargs)
         return field(**kwargs)
@@ -127,7 +128,7 @@ class WorkflowChain(models.Model):
         """
             type的作用：确定每个审批节点的类型。
             type=SELF表示该节点由发起人审批。
-            type=CUSTOM表示该节点由发起人指定。
+            type=ELECT表示该节点由发起人指定。
             type=PERSON表示该节点由指定的具体的人审批。
             type=ROLE表示该节点由指定的角色进行审批而非具体到人。
             type=DEPART_LEADER表示该节点由部门领导进行审批。
@@ -195,7 +196,7 @@ class WorkflowChain(models.Model):
             str(self.Type.SELF): [requester],
             str(self.Type.ELECT): [elected_approver],
             str(self.Type.PERSON): [self.person],
-            str(self.Type.ROLE): self.role.user_set.all() if self.role and self.role.user_set.all().exists() else [],  # TODO 多人处理
+            str(self.Type.ROLE): self.role.user_set.all() if self.role and self.role.user_set.all().exists() else [],
             str(self.Type.DEPART_LEADER): [self.department.leader] if self.department else [],
         }
         return approver_map.get(self.type, [])

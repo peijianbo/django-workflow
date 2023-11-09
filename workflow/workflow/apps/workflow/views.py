@@ -109,6 +109,7 @@ class WorkflowChainViewSet(mixins.CreateModelMixin,
                 }
             ]
         """
+        # many=True， 会自动使用list_serializer_class声明的序列化器
         serializer = self.get_serializer(data=request.data, many=True)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)

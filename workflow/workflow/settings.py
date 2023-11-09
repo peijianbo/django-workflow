@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/3.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/3.2/ref/settings/
 """
-
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -99,11 +99,11 @@ REST_FRAMEWORK = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'workflow',
-        'USER': 'root',
-        'PASSWORD': 'pwd123456',
-        'HOST': '127.0.0.1',
-        'PORT': 3306,
+        'NAME': os.getenv('DATABASE_NAME', 'workflow'),
+        'USER': os.getenv('DATABASE_USER', 'root'),
+        'PASSWORD': os.getenv('DATABASE_PASSWORD', 'pwd123456'),
+        'HOST': os.getenv('DATABASE_HOST', '127.0.0.1'),
+        'PORT': os.getenv('DATABASE_PORT', 3306),
         'ATOMIC_REQUESTS': True,
         'OPTIONS': {'charset': 'utf8mb4', 'init_command': 'SET sql_mode="STRICT_TRANS_TABLES"'},
     },
