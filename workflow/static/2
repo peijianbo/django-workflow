@@ -1,0 +1,42 @@
+[uWSGI] getting INI configuration from /data/server/run/uwsgi.ini
+[uwsgi-static] added mapping for /admin/static => /data/server/workflow/static
+*** Starting uWSGI 2.0.18 (64bit) on [Thu Nov 16 10:43:56 2023] ***
+compiled with version: 8.3.0 on 11 January 2023 07:15:13
+os: Linux-5.10.104-linuxkit #1 SMP PREEMPT Thu Mar 17 17:05:54 UTC 2022
+nodename: 9eb1479ca13e
+machine: x86_64
+clock source: unix
+detected number of CPU cores: 4
+current working directory: /data/server/workflow
+detected binary path: /usr/local/bin/uwsgi
+!!! no internal routing support, rebuild with pcre support !!!
+*** WARNING: you are running uWSGI as root !!! (use the --uid flag) ***
+chdir() to /data/server/workflow
+*** WARNING: you are running uWSGI without its master process manager *** 11111111
+your memory page size is 4096 bytes
+detected max file descriptor number: 1048576
+!!! no /etc/mime.types file found !!!
+lock engine: pthread robust mutexes
+!!! it looks like your kernel does not support pthread robust mutexes !!!
+!!! falling back to standard pthread mutexes !!!
+thunder lock: enabled
+uWSGI http bound on 0.0.0.0:8000 fd 4
+spawned uWSGI http 1 (pid: 11)  2222222222
+uwsgi socket 0 bound to TCP address 127.0.0.1:37519 (port auto-assigned) fd 3
+*** WARNING: you are running uWSGI as root !!! (use the --uid flag) ***
+Python version: 3.8.5 (default, Aug  4 2020, 16:24:08)  [GCC 8.3.0]
+Python main interpreter initialized at 0x4000174bd0
+*** WARNING: you are running uWSGI as root !!! (use the --uid flag) ***
+python threads support enabled
+your server socket listen backlog is limited to 4096 connections
+your mercy for graceful operations on workers is 60 seconds
+setting request body buffering size to 40960 bytes
+mapped 2055280 bytes (2007 KB) for 16 cores
+*** Operational MODE: preforking+threaded ***
+WSGI app 0 (mountpoint='') ready in 2 seconds on interpreter 0x4000174bd0 pid: 8 (default app)
+*** WARNING: you are running uWSGI as root !!! (use the --uid flag) ***
+*** uWSGI is running in multiple interpreter mode ***
+spawned uWSGI worker 1 (pid: 8, cores: 4)
+spawned uWSGI worker 2 (pid: 16, cores: 4)
+spawned uWSGI worker 3 (pid: 18, cores: 4)
+spawned uWSGI worker 4 (pid: 20, cores: 4)
