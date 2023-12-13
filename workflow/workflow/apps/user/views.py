@@ -49,6 +49,7 @@ class MenuViewSet(ModelViewSet):
 
     @action(methods=['get'], detail=False, url_path='menu_tree', name='menu_tree')
     def menu_tree(self, request, **kwargs):
+        """菜单树"""
         roles = request.user.groups.all()
         menus_queryset = self.filter_queryset(queryset=self.queryset).filter(roles__in=roles)
         menus = self.serializer_class(menus_queryset, many=True).data

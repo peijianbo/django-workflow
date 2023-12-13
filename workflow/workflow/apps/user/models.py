@@ -6,11 +6,13 @@ __all__ = ['User', 'Department', 'Menu']
 
 
 class User(AbstractUser):
+    """用户模型"""
     class Meta:
         verbose_name_plural = '用户管理'
 
 
 class Department(models.Model):
+    """部门模型"""
     name = models.CharField(max_length=128, verbose_name='部门名称')
     code = models.CharField(max_length=128, verbose_name='部门编号')
     leader = models.ForeignKey('User', on_delete=models.PROTECT, verbose_name='部门领导')

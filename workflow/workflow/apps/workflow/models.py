@@ -14,12 +14,14 @@ __all__ = ['Component', 'FormField', 'Workflow', 'WorkflowChain', 'WorkflowNode'
 
 
 class Action(models.TextChoices):
+    """审批人的审批动作"""
     PENDING = 'PENDING', '待处理'
     APPROVED = 'APPROVED', '已通过'
     REJECTED = 'REJECTED', '已驳回'
 
 
 class State(models.TextChoices):
+    """审批节点的审批状态"""
     PENDING = 'PENDING', '待处理'
     PROCESSING = 'PROCESSING', '进行中'
     APPROVED = 'APPROVED', '已通过'
@@ -27,6 +29,7 @@ class State(models.TextChoices):
 
 
 class Component(models.Model):
+    """组件"""
     class UIType(models.TextChoices):
         INPUT = 'INPUT', '单行输入框'
         TEXT = 'TEXT', '多行输入框'
@@ -63,7 +66,7 @@ class Component(models.Model):
 
 
 class FormField(models.Model):
-
+    """审批表单字段"""
     field_name = models.CharField(max_length=64, validators=[is_identifier], verbose_name='字段名称')
     component = models.ForeignKey(Component, on_delete=models.PROTECT, verbose_name='组件')
     workflow = models.ForeignKey('Workflow', related_name='form_fields', on_delete=models.CASCADE, verbose_name='工作流')
@@ -96,10 +99,7 @@ class FormField(models.Model):
 
 
 class Workflow(models.Model):
-    """
-    工作流。
-    如请假流/报销流
-    """
+    """工作流。如请假流/报销流"""
     name = models.CharField(max_length=128, unique=True, verbose_name='工作流名称', help_text='如请假/报销等')
     comment = models.CharField(max_length=256, null=True, blank=True, verbose_name='备注')
 
@@ -120,8 +120,8 @@ class Workflow(models.Model):
 
 class WorkflowChain(models.Model):
     """
-    工作流程链。每个工作流下都关联一个完整的工作流程链。
-    如一个请假工作流的流程链：部门部长-->HRBP-->人事专员-->CEO
+    工作流程审批链。每个工作流下都关联一个完整的工作流程审批链。
+    如一个请假工作流的流程审批链：部门部长-->HRBP-->人事专员-->CEO
     """
 
     class Type(models.TextChoices):
@@ -179,6 +179,7 @@ class WorkflowChain(models.Model):
 
     @property
     def operator(self):
+        """条件表达式与python运算符的映射关系"""
         operator_map = {
             str(self.Condition.LT): '<',
             str(self.Condition.LTE): '<=',
@@ -189,6 +190,7 @@ class WorkflowChain(models.Model):
         return operator_map.get(self.condition, None)
 
     def get_approver(self, approvers: dict, requester: User):
+        """获取审批链中某个节点的审批人"""
         elected_approver = None
         if self.type == WorkflowChain.Type.ELECT and str(self.id) in approvers:
             elected_approver = User.objects.filter(id=approvers[str(self.id)]).first()
@@ -204,7 +206,6 @@ class WorkflowChain(models.Model):
 
 class WorkflowEvent(models.Model):
     """工作流事件，由员工发起。如一个具体的请假/报销/办公用品申请"""
-
     requester = models.ForeignKey('user.User', on_delete=models.CASCADE, verbose_name='申请人')
     workflow = models.ForeignKey('Workflow', on_delete=models.PROTECT, verbose_name='工作流')
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING, verbose_name='状态')
@@ -222,6 +223,7 @@ class WorkflowEvent(models.Model):
         return f"{self.requester.username}-{self.workflow.name}-{self.get_state_display()}"
 
     def node_process(self):
+        """审批节点进度"""
         node_objs = self.nodes.all()
         nodes = []
         for node in node_objs:
@@ -246,7 +248,6 @@ class WorkflowNode(models.Model):
     具体的审批节点。
     申请人提交申请事件后，根据WorkflowChain定义的工作流程链，将具体审批节点拆解到此表。
     """
-
     class Mode(models.TextChoices):
         OR = 'OR', '或签'
         AND = 'AND', '会签'
@@ -273,6 +274,7 @@ class WorkflowNode(models.Model):
                f"{self.get_action_display()}({getattr(self.approver, 'username', '')})"
 
     def validate_action(self, approver: User):
+        """校验是否有权限执行审批操作"""
         if approver not in self.approvers.all():
             return False, '不是审批人'
         if self.mode == self.Mode.OR and NodeApprover.objects.filter(node_id=self.id).exclude(action=Action.PENDING).exists():
@@ -284,6 +286,7 @@ class WorkflowNode(models.Model):
         return True, ''
 
     def change_node_state(self, action: typing.Literal[Action.APPROVED, Action.REJECTED]):
+        """修改审批节点状态"""
         if action == Action.REJECTED:
             self.state = State.REJECTED
         else:
@@ -305,6 +308,7 @@ class WorkflowNode(models.Model):
         return self.state
 
     def change_event_state(self, action: typing.Literal[Action.APPROVED, Action.REJECTED]):
+        """修改审批事件状态"""
         if action == Action.REJECTED:
             self.event.state = State.REJECTED
             return self.event.save()
@@ -317,6 +321,7 @@ class WorkflowNode(models.Model):
             return self.event.save()
 
     def approve(self, approver: User, comment=None):
+        """审批通过"""
         can_do_action, msg = self.validate_action(approver)
         if not can_do_action:
             raise Exception(f'当前节点不允许审批-{msg}')
@@ -333,6 +338,7 @@ class WorkflowNode(models.Model):
         node_approved.send(sender=self.__class__, instance=self)
 
     def reject(self, approver: User, comment=None):
+        """审批拒绝"""
         can_do_action, msg = self.validate_action(approver)
         if not can_do_action:
             raise Exception(f'当前节点不允许审批-{msg}')
@@ -385,7 +391,7 @@ class WorkflowNode(models.Model):
 
 
 class NodeApprover(models.Model):
-    """审批节点-审批人"""
+    """审批节点-审批人中间表"""
 
     node = models.ForeignKey(WorkflowNode, on_delete=models.CASCADE, verbose_name='节点')
     approver = models.ForeignKey('user.User', on_delete=models.CASCADE, verbose_name='审批人')
