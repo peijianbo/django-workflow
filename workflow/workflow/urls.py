@@ -15,11 +15,9 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework.authtoken import views
 
 
 api_v1 = [
-    path(f'login/', views.obtain_auth_token),
     path('user/', include(('workflow.apps.user.urls', 'users'), namespace='users')),
     path('workflow/', include(('workflow.apps.workflow.urls', 'workflows'), namespace='workflows')),
 ]

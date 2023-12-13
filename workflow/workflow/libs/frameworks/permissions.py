@@ -7,4 +7,4 @@ class IsApprover(permissions.BasePermission):
         return True
 
     def has_object_permission(self, request, view, obj):
-        return request.user and request.user == obj.approver
+        return request.user and request.user in obj.approvers.all()
